@@ -33,12 +33,12 @@ void ULanGenElevation::InitSeed(int32 in)
 
 TArray<FColor> ULanGenElevation::GenerateGraph(
     FString rule, FString axiom, int ruleLoop, 
-    int x, int y, int lineLength, int minAngle, 
+    int midPointLoop, int midPointSmooth, int x,
+    int y, int lineLength, int minAngle,
     int maxAngle, bool generateElevation, int radius,
-    int peak)
+    int peak, int gapAccuracy)
 {
     lanX = x, lanY = y;
-    TArray<FColor> texture;
     TArray<coord> branchRootStack;
     TArray<coord> currentLine;
     coord* currentCoord;
@@ -64,31 +64,29 @@ TArray<FColor> ULanGenElevation::GenerateGraph(
     for (TCHAR i : grammar) {
         currentCoord = &currentLine[currentLine.Num() - 1];
         switch (i) {
-        case 'F': Bresenham(currentLine, lineLength); break;
+        case 'F' || 'G' || 'H': Bresenham(currentLine, lineLength); break;
         case 'P': /*peak point*/ break;
         case 'L': /*lowest point*/ break;
         case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
         case '-': currentCoord->AddTheta((isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle) * -1); break;
         case '[': branchRootStack.Add(*currentCoord); break;
         case ']': // run on line ends
-            MidpointDisplacement(currentLine, peak);
-            Draw(texture, currentLine);
-            GradientFill(texture, currentLine, radius, peak);
+            MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);
+            //Draw(currentLine);
+            //GradientFill(currentLine, radius, peak, gapAccuracy);
+            for (coord j : currentLine) CiircularGradientFill(j, radius);
             currentLine.Empty();
             currentLine.Add(
                 branchRootStack[branchRootStack.Num() - 1]
             );
-            /*CON_LOG("branch start: %d %d %d", 
-                branchRootStack[branchRootStack.Num() - 1].x,
-                branchRootStack[branchRootStack.Num() - 1].y,
-                branchRootStack[branchRootStack.Num() - 1].theta);*/
             branchRootStack.RemoveAt(branchRootStack.Num() - 1);
             break;
         }
     }
-    MidpointDisplacement(currentLine);
-    Draw(texture, currentLine);
-    GradientFill(texture, currentLine, radius, peak);
+    MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);
+    //Draw(currentLine);
+    //GradientFill(currentLine, radius, peak, gapAccuracy);
+    for (coord i : currentLine) CiircularGradientFill(i, radius);
 
 	return texture;
 }
@@ -178,8 +176,8 @@ void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
 
     int x0 = currentCoord.x;
     int y0 = currentCoord.y;
-    int x = x0 + sin(currentCoord.theta * PI / 180) * lineLength;
-    int y = y0 + cos(currentCoord.theta * PI / 180) * lineLength;
+    int x = x0 + FMath::Sin(currentCoord.theta * PI / 180) * lineLength;
+    int y = y0 + FMath::Cos(currentCoord.theta * PI / 180) * lineLength;
 
     int dx = FMath::Abs(x - x0);
     int dy = FMath::Abs(y - y0);
@@ -204,17 +202,34 @@ void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
 }
 
 // generate height for the ridge line
-void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int loop, int displacement)
+void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int displacement, int smooth, int loop)
 {
     TArray<midPoint> oldIndexes, newIndexes;
     midPoint mid;
     int currentDisplacement = displacement,
         randomModifier;
-    float smooth = 0.45;
+    float modifier = FMath::Pow(2, -smooth);
 
-    if (FMath::Pow(2, loop) >= currentLineCoord.Num()) loop = FMath::Log2(currentLineCoord.Num());
-    oldIndexes.Add(midPoint(0, currentLineCoord[0].height));
-    oldIndexes.Add(midPoint(currentLineCoord.Num() - 1, currentLineCoord[currentLineCoord.Num() - 1].height));
+    if (FMath::Pow(2, loop) >= currentLineCoord.Num()) {
+        loop = FMath::Log2(currentLineCoord.Num());
+        //CON_LOG("loop chopped");
+    }
+    //CON_LOG("current loop: %d loop result: %d limit: %d", loop, (int)FMath::Pow(2, loop), currentLineCoord.Num());
+    // if within landscape
+    if (currentLineCoord[0].isInRange(lanX, lanY)) {
+        oldIndexes.Add(midPoint(0,
+            texture[currentLineCoord[0].index(lanY)].R - init.R));
+    }
+    else oldIndexes.Add(midPoint(0, 0));
+
+    if (currentLineCoord[currentLineCoord.Num() - 1].isInRange(lanX, lanY)) {
+        oldIndexes.Add(midPoint(currentLineCoord.Num() - 1,
+            texture[currentLineCoord[currentLineCoord.Num() - 1].index(lanY)].R - init.R));
+    }
+    else oldIndexes.Add(midPoint(currentLineCoord.Num() - 1, 0));
+
+    // if branch
+    if (oldIndexes[0].height > 0) currentDisplacement *= modifier;
 
     // fill height between coord
     for (int j = 0; j < oldIndexes.Num() - 1; ++j) {
@@ -236,7 +251,7 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
                 if (currentLineCoord[mid.index].height < currentDisplacement) randomModifier = 1;
                 else randomModifier = (randomEngine.RandRange(0, 1) == 0 ? 1 : -1);
                 mid.height = currentLineCoord[mid.index].height + currentDisplacement * randomModifier;
-                currentDisplacement *= smooth;
+                currentDisplacement *= modifier;
                 newIndexes.Add(mid);
             }
         }
@@ -261,64 +276,72 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
     }*/
 }
 
-void ULanGenElevation::GradientFill(TArray<FColor>& texture, TArray<coord> currentLine, int radius, int peak)
+void ULanGenElevation::GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy)
 {
     // radius @ peak
-    CON_LOG("Gradient fill called");
-    float currentRadius = radius,
-        a = FMath::Pow((float)radius, (1 / (float)peak));
+    //CON_LOG("GradientFill ver 42");
+    float currentRadius = radius;
+    float a = FMath::Pow((float)radius, (1 / (float)peak)); // exponent ridge height
+    float b = currentRadius / peak; // linear ridge height
+    //CON_LOG("currLine size, a, peak, radius: %d, %f, %d, %d", currentLine.Num() , a, peak, radius);
     TArray<coord> left, right;
     coord currentCoord;
     for (int i = 0; i < currentLine.Num(); ++i) {
-        currentRadius = FMath::Pow(a, currentLine[i].height);
-        CON_LOG("radius pow: %f", currentRadius);
-        if (i != 0) {
-            // check for angle change
+        // exponent
+        //currentRadius = FMath::Pow(a, currentLine[i].height);
+        // linear
+        currentRadius = b * currentLine[i].height;
+
+        // check for angle change
+        if (i > 0) {
             if (currentLine[i].theta != currentLine[i - 1].theta) {
                 CON_LOG("different angle");
                 // do angle gap fill
-                if (currentLine[i].theta > currentLine[i - 1].theta + 180 || currentLine[i].theta < currentLine[i - 1].theta) {
+                if (currentLine[i].theta > currentLine[i - 1].AddThetaTemp(180) || currentLine[i].theta < currentLine[i - 1].theta) {
                     // go left, fill right
-                    for (int j = currentLine[i].theta;
-                        j > currentLine[i - 1].theta;
-                        j += (currentLine[i].theta > currentLine[i - 1].theta ? 10 : -10)) {
-                        currentCoord = currentLine[j];
+                    CON_LOG("go left | current: %d, before: %d version 2", currentLine[i].theta, currentLine[i-1].theta);
+                    int j = currentLine[i].theta;
+                    while (j < currentLine[i - 1].theta) {
+                        currentCoord = currentLine[i];
+                        currentCoord.theta = j;
                         right.Empty();
                         currentCoord.AddTheta(90);
                         right.Add(currentCoord);
                         Bresenham(right, currentRadius);
-
                         // gradient (linear)
                         right[right.Num() - 1].height = 0;
                         for (int k = 0; k < right.Num() - 1; ++k) {
-                            right[k].height = ((float) k / (right.Num() - 1)) * (right[right.Num() - 1].height - right[0].height);
+                            right[k].height = ((float)k / (right.Num() - 1)) * ((float)right[right.Num() - 1].height - right[0].height) + right[0].height;
+                            //if (i == 50) CON_LOG("batch %d height: %d rad: %f size: %d", i, right[k].height, currentRadius, right.Num());
                         }
-
-                        Draw(texture, right);
+                        Draw(right);
+                        j += gapAccuracy;
                     }
                 }
                 else {
                     // go right, fill left
-                    for (int j = currentLine[i].theta;
-                        j > currentLine[i - 1].theta;
-                        i += (currentLine[i].theta > currentLine[i - 1].theta ? 10 : -10)) {
-                        currentCoord = currentLine[j];
+                    CON_LOG("go right | current: %d, before: %d", currentLine[i].theta, currentLine[i - 1].theta);
+                    int j = currentLine[i].theta;
+                    while (j > currentLine[i - 1].theta) {
+                        currentCoord = currentLine[i];
+                        currentCoord.theta = j;
                         left.Empty();
                         currentCoord.AddTheta(-90);
                         left.Add(currentCoord);
                         Bresenham(left, currentRadius);
-
                         // gradient (linear)
                         left[left.Num() - 1].height = 0;
                         for (int k = 0; k < left.Num() - 1; ++k) {
-                            left[k].height = ((float)k / (left.Num() - 1)) * (left[left.Num() - 1].height - left[0].height);
+                            left[k].height = ((float)k / (left.Num() - 1)) * ((float)left[left.Num() - 1].height - left[0].height) + left[0].height;
+                            //if (i == 50) CON_LOG("batch %d height: %d rad: %f size: %d", i, left[k].height, currentRadius, left.Num());
                         }
-
-                        Draw(texture, left);
+                        Draw(left);
+                        j -= gapAccuracy;
                     }
                 }
             }
         }
+
         // do radius fill | L R balanced radius feature ?
         currentCoord = currentLine[i];
 
@@ -326,39 +349,85 @@ void ULanGenElevation::GradientFill(TArray<FColor>& texture, TArray<coord> curre
         left.Empty();
         currentCoord.AddTheta(-90);
         left.Add(currentCoord);
+        //CON_LOG("pre-Bresenham, left size: %d, %d", currentCoord.height, left.Num());
         Bresenham(left, currentRadius);
-
         // gradient (linear)
         left[left.Num() - 1].height = 0;
-        /*CON_LOG("left size: %d", left.Num());*/
         for (int k = 0; k < left.Num() - 1; ++k) {
-            left[k].height = ((float)k / (left.Num() - 1)) * (left[left.Num() - 1].height - left[0].height);
+            left[k].height = ((float)k / (left.Num() - 1)) * ((float)left[left.Num() - 1].height - left[0].height) + left[0].height;
+            //if (i == 50) CON_LOG("batch %d height: %d rad: %f size: %d", i, left[k].height, currentRadius, left.Num());
         }
-
-        Draw(texture, left);
+        Draw(left);
 
         // right side
         right.Empty();
         currentCoord.AddTheta(180);
         right.Add(currentCoord);
+        //CON_LOG("pre-Bresenham, right size: %d, %d", currentCoord.height, right.Num());
         Bresenham(right, currentRadius);
-
-        // gradient (linear)
+        //// gradient (linear)
         right[right.Num() - 1].height = 0;
         for (int k = 0; k < right.Num() - 1; ++k) {
-            right[k].height = ((float)k / (right.Num() - 1)) * (right[right.Num() - 1].height - right[0].height);
+            right[k].height = ((float)k / (right.Num() - 1)) * ((float)right[right.Num() - 1].height - right[0].height) + right[0].height;
         }
-
-        Draw(texture, right);
+        Draw(right);
     }
 }
 
-void ULanGenElevation::Draw(TArray<FColor>& texture, TArray<coord> currentLine)
+void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius)
+{
+    TArray<coord> gradient;
+    TArray<float> unnormalized;
+    int size = radius * 2 + 1,
+        counter = 0,
+        peak = centerCoord.height;
+    float biggest = 0;
+    coord startCoord = coord(centerCoord.x - radius, centerCoord.y - radius, 0);
+    //CON_LOG("center: %d, %d; start: %d, %d", centerCoord.x, centerCoord.y, startCoord.x, startCoord.y);
+
+    gradient.Init(coord(), size * size);
+    unnormalized.Init(0, size * size);
+    // coord sync
+    for (coord& i : gradient) {
+        i.x = (int)counter / size + startCoord.x, i.y = (int)counter % size + startCoord.y, ++counter;
+        //CON_LOG("gradient: %d, %d", i.x, i.y);
+    }
+    // gradient value
+    for (int row = 0; row < size; ++row) {
+        for (int col = 0; col < size; ++col) {
+            unnormalized[row * size + col] = EuclideanDistance(centerCoord, gradient[row * size + col], radius);
+            if (unnormalized[row * size + col] > biggest) biggest = unnormalized[row * size + col];
+        }
+    }
+    //CON_LOG("biggest: %f", biggest);
+    // normalized
+    for (int i = 0; i < gradient.Num(); ++i) {
+        // invert then normalize
+        if (unnormalized[i] > 0) gradient[i].height = ((float)((biggest - unnormalized[i]) / biggest) * peak);
+    }
+
+    Draw(gradient);
+}
+
+void ULanGenElevation::CiircularLineGradientFill(TArray<coord> currentLine, int radius)
+{
+    
+}
+
+float ULanGenElevation::EuclideanDistance(coord centerCoord, coord pointCoord, int radius)
+{
+    float dist = FMath::Sqrt(
+        FMath::Pow(centerCoord.x - pointCoord.x, 2) + FMath::Pow(centerCoord.y - pointCoord.y, 2)
+    );
+    return (dist > radius ? 0 : dist);
+}
+
+void ULanGenElevation::Draw(TArray<coord> currentLine)
 {
     //CON_LOG("height: %d", currentLine[0].height);
     for (coord i : currentLine) {
-        if (i.x >= 0 && i.y >= 0 && i.x < lanX && i.y < lanY) 
+        if (i.isInRange(lanX, lanY)) 
             /*only draw if current height higher*/
-            if (i.height > texture[i.x * lanY + i.y].R - init.R) texture[i.x * lanY + i.y].R = i.height + init.R;
+            if (i.height > texture[i.index(lanY)].R - init.R) texture[i.index(lanY)].R = i.height + init.R;
     }
 }

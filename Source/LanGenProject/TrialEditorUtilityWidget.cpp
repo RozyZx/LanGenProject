@@ -34,7 +34,7 @@ UTexture2D* UTrialEditorUtilityWidget::GenerateTexture(int x, int y, int tileX, 
 			index = (i * y) + j;
 			location.X = (float) i / tileX;
 			location.Y = (float) j / tileY;
-			colorData[index].R = GenerateFunction(location);
+			colorData[index].R = GenerateFunction(location, colorData[index].R);
 		}
 	}
 

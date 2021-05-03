@@ -35,7 +35,7 @@ public:
 		void Debug(int x, int y, int tileX = 512, int tileY = 512);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")
-		uint8 GenerateFunction(const FVector2D location);
+		uint8 GenerateFunction(const FVector2D location, const int value);
 	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")
 		void GenerationSetup();
 	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")

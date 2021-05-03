@@ -18,6 +18,9 @@ struct coord {
 	coord() { x = 0, y = 0, theta = 0, height = 0; }
 	coord(int X, int Y, int THETA) { x = X, y = Y, theta = THETA, height = 0; }
 	void AddTheta(int value) { theta = (theta + value) % 360; }
+	int AddThetaTemp(int value) { return (theta + value) % 360; }
+	int index(int yLen) { return x * yLen + y; }
+	bool isInRange(int xLen, int yLen) { return x >= 0 && y >= 0 && x < xLen&& y < yLen; }
 };
 
 struct midPoint {
@@ -36,6 +39,7 @@ private:
 	FRandomStream randomEngine;
 	TArray<rule> rules;
 	TArray<int> p;
+	TArray<FColor> texture;
 	const TArray<int> P_BASE = {
 		151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
 		8,99,37,240,21,10,23,190, 6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
@@ -60,9 +64,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
 		TArray<FColor> GenerateGraph(
 			FString rule, FString axiom, int ruleLoop,
-			int x, int y, int lineLength = 3, int minAngle = 30,
+			int midPointLoop, int midPointSmooth, int x,
+			int y, int lineLength = 3, int minAngle = 30,
 			int maxAngle = 30, bool generateElevation = true, int radius = 50,
-			int peak = 120
+			int peak = 50, int gapAccuracy = 1
 		);
 private:
 	void RuleSetup(FString rule);
@@ -70,7 +75,12 @@ private:
 	void Shuffle(TArray<int>& inArr);
 	FString RandomizeRule(int ruleIndex);
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
-	void MidpointDisplacement(TArray<coord>& currentLine, int loop = 5, int displacement = 50);
-	void GradientFill(TArray<FColor>& texture, TArray<coord> currentLine, int radius, int peak);
-	void Draw(TArray<FColor>& texture, TArray<coord> currentLine);
+	void MidpointDisplacement(TArray<coord>& currentLine, int displacement, int smooth, int loop = 20);
+	void GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy);
+
+	void CiircularGradientFill(coord centerCoord, int radius);
+	void CiircularLineGradientFill(TArray<coord> currentLine, int radius);
+	float EuclideanDistance(coord centerCoord, coord pointCoord, int radius);
+
+	void Draw(TArray<coord> currentLine);
 };
