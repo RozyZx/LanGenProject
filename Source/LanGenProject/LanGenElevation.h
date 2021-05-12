@@ -17,6 +17,7 @@ struct coord {
 	int x, y, theta, height;
 	coord() { x = 0, y = 0, theta = 0, height = 0; }
 	coord(int X, int Y, int THETA) { x = X, y = Y, theta = THETA, height = 0; }
+	void SetTheta(int value) { theta = value % 360; }
 	void AddTheta(int value) { theta = (theta + value) % 360; }
 	int AddThetaTemp(int value) { return (theta + value) % 360; }
 	int index(int yLen) { return x * yLen + y; }
@@ -67,7 +68,13 @@ public:
 			int midPointLoop, int midPointSmooth, int x,
 			int y, int lineLength = 3, int minAngle = 30,
 			int maxAngle = 30, bool generateElevation = true, int radius = 50,
-			int peak = 50, int gapAccuracy = 1
+			int peak = 50, int gapAccuracy = 1, int skew = 0
+		);
+	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
+		TArray<FColor> GenerateGraphDebug(
+			FString rule, FString axiom, int ruleLoop,
+			int x, int y, int lineLength = 3, int minAngle = 30, int maxAngle = 30,
+			int radius = 50, int peak = 50, float skew = 0, int fillDegree = 90
 		);
 private:
 	void RuleSetup(FString rule);
@@ -76,11 +83,23 @@ private:
 	FString RandomizeRule(int ruleIndex);
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
 	void MidpointDisplacement(TArray<coord>& currentLine, int displacement, int smooth, int loop = 20);
-	void GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy);
 
-	void CiircularGradientFill(coord centerCoord, int radius);
-	void CiircularLineGradientFill(TArray<coord> currentLine, int radius);
-	float EuclideanDistance(coord centerCoord, coord pointCoord, int radius);
+	void GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy);
+	void CiircularGradientFill(coord centerCoord, int radius, int peak);
+	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree);
+
+	float EuclideanDistance(coord pointCoord, coord centerCoord = coord());
+	int Parabola(float a, float c, float x, float xOffset = 0);
+	float ParabolaA(float c, float xMax, float xOffset = 0);
+	float ParabolaX(float a, float c, float y);
+	int ExponentDecay(float a, float b, float x, float xOffset = 0, int modifier = 1);
+	float ExponentDecayA(float b, float xMax, float y = 0.1, float xOffset = 0);
+	int Linear(float m, float x, float c);
+	float LinearM(float c, float xMax);
+	float LinearX(float m, float c, float y);
 
 	void Draw(TArray<coord> currentLine);
+	static float DegreeToRad(int degree);
+	static float RadToDegree(float rad);
+	static int Abs(int in);
 };

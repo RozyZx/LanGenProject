@@ -9,7 +9,6 @@
 #include "Misc/Char.h"
 #include "Misc/DefaultValueHelper.h"
 
-#define PI 3.14159265
 #define CON_LOG(x, ...) UE_LOG(LogTemp, Warning, TEXT(x), __VA_ARGS__);
 
 void ULanGenElevation::ResetSeed()
@@ -36,7 +35,7 @@ TArray<FColor> ULanGenElevation::GenerateGraph(
     int midPointLoop, int midPointSmooth, int x,
     int y, int lineLength, int minAngle,
     int maxAngle, bool generateElevation, int radius,
-    int peak, int gapAccuracy)
+    int peak, int gapAccuracy, int skew)
 {
     lanX = x, lanY = y;
     TArray<coord> branchRootStack;
@@ -64,17 +63,18 @@ TArray<FColor> ULanGenElevation::GenerateGraph(
     for (TCHAR i : grammar) {
         currentCoord = &currentLine[currentLine.Num() - 1];
         switch (i) {
-        case 'F' || 'G' || 'H': Bresenham(currentLine, lineLength); break;
+        case 'F' : Bresenham(currentLine, lineLength); break;
         case 'P': /*peak point*/ break;
         case 'L': /*lowest point*/ break;
         case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
         case '-': currentCoord->AddTheta((isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle) * -1); break;
         case '[': branchRootStack.Add(*currentCoord); break;
         case ']': // run on line ends
-            MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);
+            GradientSingleMain(currentLine, peak, radius, skew, 90);
+            /*MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);*/
             //Draw(currentLine);
             //GradientFill(currentLine, radius, peak, gapAccuracy);
-            for (coord j : currentLine) CiircularGradientFill(j, radius);
+            //for (coord j : currentLine) CiircularGradientFill(j, radius, peak);
             currentLine.Empty();
             currentLine.Add(
                 branchRootStack[branchRootStack.Num() - 1]
@@ -83,12 +83,63 @@ TArray<FColor> ULanGenElevation::GenerateGraph(
             break;
         }
     }
-    MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);
+    GradientSingleMain(currentLine, peak, radius, skew, 90);
+    /*MidpointDisplacement(currentLine, peak, midPointSmooth, midPointLoop);*/
     //Draw(currentLine);
     //GradientFill(currentLine, radius, peak, gapAccuracy);
-    for (coord i : currentLine) CiircularGradientFill(i, radius);
+    //for (coord i : currentLine) CiircularGradientFill(i, radius, peak);
 
 	return texture;
+}
+
+TArray<FColor> ULanGenElevation::GenerateGraphDebug(FString rule, FString axiom, int ruleLoop, int x, int y, int lineLength, int minAngle, int maxAngle, int radius, int peak, float skew, int fillDegree)
+{
+    lanX = x, lanY = y;
+    TArray<coord> branchRootStack;
+    TArray<coord> currentLine;
+    coord* currentCoord;
+    FString grammar;
+    bool isRandomAngle = minAngle != maxAngle;
+
+    init = FColor(100, 0, 0);
+    texture.Init(init, lanX * lanY);
+
+    // L-System
+    RuleSetup(rule);
+    grammar = RuleApply(axiom, ruleLoop);
+    //CON_LOG("%s", *grammar);
+
+    // set starting position
+    currentLine.Add(coord(
+        lanX / 2,
+        lanY / 2,
+        0
+    ));
+
+    // create array of target coord
+    for (TCHAR i : grammar) {
+        currentCoord = &currentLine[currentLine.Num() - 1];
+        switch (i) {
+        case 'F': Bresenham(currentLine, lineLength); break;
+        case 'P': /*peak point*/ break;
+        case 'L': /*lowest point*/ break;
+        case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
+        case '-': currentCoord->AddTheta((isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle) * -1); break;
+        case '[': branchRootStack.Add(*currentCoord); break;
+        case ']': // run on line ends
+            GradientSingleMain(currentLine, peak, radius, skew, fillDegree);
+            currentLine.Empty();
+            currentLine.Add(
+                branchRootStack[branchRootStack.Num() - 1]
+            );
+            branchRootStack.RemoveAt(branchRootStack.Num() - 1);
+            break;
+        }
+    }
+    GradientSingleMain(currentLine, peak, radius, skew, fillDegree);
+
+    return texture;
+
 }
 
 // L-System rule setup
@@ -176,8 +227,8 @@ void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
 
     int x0 = currentCoord.x;
     int y0 = currentCoord.y;
-    int x = x0 + FMath::Sin(currentCoord.theta * PI / 180) * lineLength;
-    int y = y0 + FMath::Cos(currentCoord.theta * PI / 180) * lineLength;
+    int x = x0 + FMath::Sin(DegreeToRad(currentCoord.theta)) * lineLength;
+    int y = y0 + FMath::Cos(DegreeToRad(currentCoord.theta)) * lineLength;
 
     int dx = FMath::Abs(x - x0);
     int dy = FMath::Abs(y - y0);
@@ -204,6 +255,7 @@ void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
 // generate height for the ridge line
 void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int displacement, int smooth, int loop)
 {
+    CON_LOG("midpoint");
     TArray<midPoint> oldIndexes, newIndexes;
     midPoint mid;
     int currentDisplacement = displacement,
@@ -374,14 +426,18 @@ void ULanGenElevation::GradientFill(TArray<coord>& currentLine, int radius, int 
     }
 }
 
-void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius)
+void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius, int peak)
 {
+    CON_LOG("circular gradient fill");
     TArray<coord> gradient;
     TArray<float> unnormalized;
     int size = radius * 2 + 1,
         counter = 0,
-        peak = centerCoord.height;
+        linePeak = centerCoord.height;
     float biggest = 0;
+    float currentRadius = radius,
+        a = FMath::Pow((float)radius, (1 / (float)peak)),
+        b = currentRadius / peak;
     coord startCoord = coord(centerCoord.x - radius, centerCoord.y - radius, 0);
     //CON_LOG("center: %d, %d; start: %d, %d", centerCoord.x, centerCoord.y, startCoord.x, startCoord.y);
 
@@ -395,7 +451,8 @@ void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius)
     // gradient value
     for (int row = 0; row < size; ++row) {
         for (int col = 0; col < size; ++col) {
-            unnormalized[row * size + col] = EuclideanDistance(centerCoord, gradient[row * size + col], radius);
+            currentRadius = b * centerCoord.height;
+            unnormalized[row * size + col] = EuclideanDistance(gradient[row * size + col], centerCoord);
             if (unnormalized[row * size + col] > biggest) biggest = unnormalized[row * size + col];
         }
     }
@@ -409,17 +466,213 @@ void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius)
     Draw(gradient);
 }
 
-void ULanGenElevation::CiircularLineGradientFill(TArray<coord> currentLine, int radius)
+void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree)
 {
+    CON_LOG("grad single main called v8");
+
+    // main line height
+    int mainLineRadius = curLine.Num() / 2,
+        mainLineParaRadius = mainLineRadius * 0.75,
+        /*mainLineExpRadius = mainLineRadius * 0.25,*/
+        blendHeight, blendOffset;
+    float paraA = ParabolaA(peak, mainLineParaRadius);
+    float expA = ExponentDecayA(peak, mainLineParaRadius); // use para radius for smoother result
+    blendOffset = ParabolaX(paraA, peak, peak / 4);
+    blendHeight = (peak / 4) / expA;
+
+    //for (int i = 0; i < curLine.Num(); ++i) {
+    //    if (i - mainLineRadius < -blendOffset) {
+    //        // left blend
+    //        curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius - blendOffset, -1);;
+    //    }
+    //    else if (i - mainLineRadius > blendOffset) {
+    //        // right blend
+    //        curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius + blendOffset);
+    //    }
+    //    else {
+    //        curLine[i].height = Parabola(paraA, peak, i, mainLineRadius);
+    //    }
+    //}
     
+    // grad fill
+    /*fill left right for every coord ignoring correlation*/
+    bool bug = true;
+    int leftRadius = radius * ((-skew) + 1),
+        rightRadius = radius * (skew + 1),
+        size = radius * 4 + 1,
+        leftFunc, rightFunc, xIt, yIt, curIndex;
+    float leftA, rightA, curEU, optiA,
+        fillRadius = size / 2;
+    coord startFill = coord(), endFill = coord(),
+        a = coord(), b = coord(), c = coord(), d = coord();
+    bool isFirst = true;
+    
+    // 0 = exponent decay, 1 = linear + blend, 2 = parabola + blend
+    if (skew == 0) leftFunc = 1, rightFunc = 1, radius *= 0.75,
+        leftA = LinearM(peak, radius),
+        rightA = leftA,
+        optiA = ExponentDecayA(peak, radius),
+        blendOffset = LinearX(leftA, peak, peak / 4);
+    else if (skew > 0) leftFunc = 0, rightFunc = 2, rightRadius *= 0.75,
+        leftA = ExponentDecayA(peak, leftRadius),
+        rightA = ParabolaA(peak, rightRadius),
+        optiA = ExponentDecayA(peak, rightRadius),
+        blendOffset = ParabolaX(rightA, peak, peak / 4);
+    else leftFunc = 2, rightFunc = 0, leftRadius *= 0.75,
+        leftA = ParabolaA(peak, leftRadius),
+        optiA = ExponentDecayA(peak, leftRadius),
+        blendOffset = ParabolaX(leftA, peak, peak / 4),
+        rightA = ExponentDecayA(peak, rightRadius);
+
+    fillDegree /= 2;
+    fillDegree = 90 - fillDegree;
+    blendHeight = (peak / 4) / optiA;
+
+    //CON_LOG("radius %d, left %d, right, %d", radius, leftRadius, rightRadius);
+
+    for (coord curCoord : curLine) {
+        TArray<coord> grad;
+        curCoord.height = peak;
+        //CON_LOG("===================================================================");
+
+        // figuring out where to start loop
+        a.x = ((float) FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+        a.y = ((float) FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+
+        b.x = ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+        b.y = ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+
+        c.x = ((float)FMath::Sin(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+        c.y = ((float)FMath::Cos(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+
+        d.x = ((float)FMath::Sin(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+        d.y = ((float)FMath::Cos(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+
+        // compare Abs value
+        startFill.x = (Abs(a.x) > Abs(d.x)) ? a.x : d.x;
+        startFill.y = (Abs(a.y) > Abs(b.y)) ? a.y : b.y;
+        endFill.x = (Abs(c.x) > Abs(b.x)) ? c.x : b.x;
+        endFill.y = (Abs(c.y) > Abs(d.y)) ? c.y : d.y;
+        
+        grad.Init(coord(), (endFill.x - startFill.x + 1) * (endFill.y - startFill.y + 1));
+
+        //if (bug) CON_LOG("start (%d, %d) end (%d, %d) size", startFill.x, startFill.y, endFill.x, endFill.y, (endFill.x - startFill.x) * (endFill.y - startFill.y));
+        //if (bug) CON_LOG("a (%d, %d); b (%d, %d); c (%d, %d); d (%d, %d)", a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
+
+        xIt = (endFill.x > startFill.x) ? 1 : -1;
+        yIt = (endFill.y > startFill.y) ? 1 : -1;
+
+        for (int x = startFill.x; (xIt == 1) ? x <= endFill.x : x >= endFill.x; x += xIt) {
+            for (int y = startFill.y; (yIt == 1) ? y <= endFill.y : y >= endFill.y; y += yIt) {
+                curIndex = ((x - startFill.x) * (endFill.y - startFill.y) * yIt + (y - startFill.y)) * xIt;
+                //if (bug) CON_LOG("x, y: %d, %d", x + curCoord.x, y + curCoord.y);
+
+                // fill in x degree left and right only
+                curEU = EuclideanDistance(coord(x, y, 0));
+                //grad[curIndex].SetTheta(RadToDegree(FMath::Asin((float)y / curEU)) - curCoord.theta); // result {-90, 90} half horizontal; in > 90 - a; in < -90 + a
+                grad[curIndex].theta = RadToDegree(FMath::Acos((float)x / curEU)) - curCoord.theta;
+                // not precise, for comparison only; result {-90, 90} half horizontal; in > 90 - a; in < -90 + a; left -, right +
+                if (grad[curIndex].theta > 90 + fillDegree) {
+                    // left
+                    grad[curIndex].x = x + curCoord.x;
+                    grad[curIndex].y = y + curCoord.y;
+
+                    switch (leftFunc) {
+                    case 0:
+                        grad[curIndex].height = ExponentDecay(leftA, curCoord.height, curEU);
+                        break;
+                    case 1:
+                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+                        else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
+                        break;
+                    case 2:
+                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+                        else grad[curIndex].height = Parabola(leftA, curCoord.height, curEU);
+                        break;
+                    }
+                    //CON_LOG("paraA, x: %f, %f", leftA, (float)curEU);
+                }
+                else if (grad[curIndex].theta < 90 - fillDegree) {
+                    // right
+                    grad[curIndex].x = x + curCoord.x;
+                    grad[curIndex].y = y + curCoord.y;
+
+                    switch (rightFunc) {
+                    case 0:
+                        grad[curIndex].height = ExponentDecay(rightA, curCoord.height, curEU);
+                        break;
+                    case 1:
+                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+                        else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
+                        break;
+                    case 2:
+                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+                        else grad[curIndex].height = Parabola(rightA, curCoord.height, curEU);
+                        break;
+                    }
+                }
+
+                /*CON_LOG("current: (%d, %d, %d) \t arcsin: %d", x, y, (int) curEU,
+                    grad[curIndex].theta
+                );*/
+            }
+        }
+        Draw(grad);
+        bug = false;
+    }
+
+    //Draw(curLine);
 }
 
-float ULanGenElevation::EuclideanDistance(coord centerCoord, coord pointCoord, int radius)
+float ULanGenElevation::EuclideanDistance(coord pointCoord, coord centerCoord)
 {
-    float dist = FMath::Sqrt(
+    return FMath::Sqrt(
         FMath::Pow(centerCoord.x - pointCoord.x, 2) + FMath::Pow(centerCoord.y - pointCoord.y, 2)
     );
-    return (dist > radius ? 0 : dist);
+}
+
+int ULanGenElevation::Parabola(float a, float c, float x, float xOffset)
+{
+    x -= xOffset;
+    return (a * x * x) + c;
+}
+
+float ULanGenElevation::ParabolaA(float c, float xMax, float xOffset)
+{
+    xMax -= xOffset;
+    return (float)-c / (xMax * xMax);
+}
+
+float ULanGenElevation::ParabolaX(float a, float c, float y)
+{
+    return FMath::Pow((y - c)/a , 0.5);
+}
+
+int ULanGenElevation::ExponentDecay(float a, float b, float x, float xOffset, int modifier)
+{
+    x -= xOffset;
+    return b * FMath::Pow(a, x * modifier);
+}
+
+float ULanGenElevation::ExponentDecayA(float b, float xMax, float y, float xOffset)
+{
+    xMax -= xOffset;
+    return FMath::Pow(y / b, 1 / xMax);
+}
+
+int ULanGenElevation::Linear(float m, float x, float c)
+{
+    return m * x + c;
+}
+
+float ULanGenElevation::LinearM(float c, float xMax)
+{
+    return -(FMath::Pow(2, (c / xMax) - 1));
+}
+
+float ULanGenElevation::LinearX(float m, float c, float y)
+{
+    return (y - c) / m;
 }
 
 void ULanGenElevation::Draw(TArray<coord> currentLine)
@@ -430,4 +683,19 @@ void ULanGenElevation::Draw(TArray<coord> currentLine)
             /*only draw if current height higher*/
             if (i.height > texture[i.index(lanY)].R - init.R) texture[i.index(lanY)].R = i.height + init.R;
     }
+}
+
+float ULanGenElevation::DegreeToRad(int degree)
+{
+    return degree * 3.14159265 / 180;
+}
+
+float ULanGenElevation::RadToDegree(float rad)
+{
+    return rad * 180 / 3.14159265;
+}
+
+int ULanGenElevation::Abs(int in)
+{
+    return (in < 0) ? in * -1 : in;
 }
