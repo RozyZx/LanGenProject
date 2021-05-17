@@ -49,6 +49,11 @@ UTexture2D* UTrialEditorUtilityWidget::GenerateTexture(int x, int y, int tileX, 
 
 uint8 UTrialEditorUtilityWidget::MapTo8Bit(float in, float min, float max) { return 255 * ((in - min) / (max - min)); }
 
+int UTrialEditorUtilityWidget::MapFloatToInt(float in, float inMin, float inMax, int min, int max)
+{
+	return FMath::RoundToInt((max - min) * (in / (inMax - inMin)));
+}
+
 float UTrialEditorUtilityWidget::RandomFloat() { return FMath::RandRange((float)-1.0, (float)1.0); }
 
 void UTrialEditorUtilityWidget::Debug(int x, int y, int tileX, int tileY)

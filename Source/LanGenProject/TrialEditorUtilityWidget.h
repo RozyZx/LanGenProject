@@ -28,6 +28,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Landscape Generation")
 		uint8 MapTo8Bit(float in, float min = -1.0, float max = 1.0);
 	UFUNCTION(BlueprintCallable, Category = "Landscape Generation")
+		int MapFloatToInt(float in, float inMin, float inMax, int min = -100, int max = 100);
+	UFUNCTION(BlueprintCallable, Category = "Landscape Generation")
 		float RandomFloat();
 	UFUNCTION(BlueprintCallable, Category = "Landscape Generation")
 		int32 Randomize() { return FMath::RandRange((int32)-1000000000, (int32)1000000000); }

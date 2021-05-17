@@ -124,7 +124,7 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(FString rule, FString axiom,
         case 'P': /*peak point*/ break;
         case 'L': /*lowest point*/ break;
         case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
-        case '-': currentCoord->AddTheta((isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle) * -1); break;
+        case '-': currentCoord->AddTheta(-(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle)); break;
         case '[': branchRootStack.Add(*currentCoord); break;
         case ']': // run on line ends
             GradientSingleMain(currentLine, peak, radius, skew, fillDegree);
@@ -468,7 +468,7 @@ void ULanGenElevation::CiircularGradientFill(coord centerCoord, int radius, int 
 
 void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree)
 {
-    CON_LOG("grad single main called v8");
+    //CON_LOG("grad single main called v8");
 
     // main line height
     int mainLineRadius = curLine.Num() / 2,
@@ -480,148 +480,163 @@ void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int 
     blendOffset = ParabolaX(paraA, peak, peak / 4);
     blendHeight = (peak / 4) / expA;
 
-    //for (int i = 0; i < curLine.Num(); ++i) {
-    //    if (i - mainLineRadius < -blendOffset) {
-    //        // left blend
-    //        curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius - blendOffset, -1);;
-    //    }
-    //    else if (i - mainLineRadius > blendOffset) {
-    //        // right blend
-    //        curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius + blendOffset);
-    //    }
-    //    else {
-    //        curLine[i].height = Parabola(paraA, peak, i, mainLineRadius);
-    //    }
-    //}
-    
-    // grad fill
-    /*fill left right for every coord ignoring correlation*/
-    bool bug = true;
-    int leftRadius = radius * ((-skew) + 1),
-        rightRadius = radius * (skew + 1),
-        size = radius * 4 + 1,
-        leftFunc, rightFunc, xIt, yIt, curIndex;
-    float leftA, rightA, curEU, optiA,
-        fillRadius = size / 2;
-    coord startFill = coord(), endFill = coord(),
-        a = coord(), b = coord(), c = coord(), d = coord();
-    bool isFirst = true;
-    
-    // 0 = exponent decay, 1 = linear + blend, 2 = parabola + blend
-    if (skew == 0) leftFunc = 1, rightFunc = 1, radius *= 0.75,
-        leftA = LinearM(peak, radius),
-        rightA = leftA,
-        optiA = ExponentDecayA(peak, radius),
-        blendOffset = LinearX(leftA, peak, peak / 4);
-    else if (skew > 0) leftFunc = 0, rightFunc = 2, rightRadius *= 0.75,
-        leftA = ExponentDecayA(peak, leftRadius),
-        rightA = ParabolaA(peak, rightRadius),
-        optiA = ExponentDecayA(peak, rightRadius),
-        blendOffset = ParabolaX(rightA, peak, peak / 4);
-    else leftFunc = 2, rightFunc = 0, leftRadius *= 0.75,
-        leftA = ParabolaA(peak, leftRadius),
-        optiA = ExponentDecayA(peak, leftRadius),
-        blendOffset = ParabolaX(leftA, peak, peak / 4),
-        rightA = ExponentDecayA(peak, rightRadius);
+    // ridgeline height
+    for (int i = 0; i < curLine.Num(); ++i) {
+        if (i - mainLineRadius < -blendOffset) {
+            // left blend
+            curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius - blendOffset, -1);;
+        }
+        else if (i - mainLineRadius > blendOffset) {
+            // right blend
+            curLine[i].height = ExponentDecay(expA, blendHeight, i, mainLineRadius + blendOffset);
+        }
+        else {
+            curLine[i].height = Parabola(paraA, peak, i, mainLineRadius);
+        }
+        // crash *memory usage* prevention
+        if (curLine[i].height < 0) curLine[i].height = 0;
+        //curLine[i].height = peak;
+    }
+    // gradient; peak -> x; radius -> y; y = mx; m = y / x
+    int eachRadius;
+    float m = (float) radius / peak;
 
-    fillDegree /= 2;
-    fillDegree = 90 - fillDegree;
-    blendHeight = (peak / 4) / optiA;
-
-    //CON_LOG("radius %d, left %d, right, %d", radius, leftRadius, rightRadius);
+    Draw(curLine);
 
     for (coord curCoord : curLine) {
-        TArray<coord> grad;
-        curCoord.height = peak;
-        //CON_LOG("===================================================================");
-
-        // figuring out where to start loop
-        a.x = ((float) FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
-        a.y = ((float) FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
-
-        b.x = ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
-        b.y = ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
-
-        c.x = ((float)FMath::Sin(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
-        c.y = ((float)FMath::Cos(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
-
-        d.x = ((float)FMath::Sin(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
-        d.y = ((float)FMath::Cos(DegreeToRad(curCoord.theta)) * radius) + ((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
-
-        // compare Abs value
-        startFill.x = (Abs(a.x) > Abs(d.x)) ? a.x : d.x;
-        startFill.y = (Abs(a.y) > Abs(b.y)) ? a.y : b.y;
-        endFill.x = (Abs(c.x) > Abs(b.x)) ? c.x : b.x;
-        endFill.y = (Abs(c.y) > Abs(d.y)) ? c.y : d.y;
-        
-        grad.Init(coord(), (endFill.x - startFill.x + 1) * (endFill.y - startFill.y + 1));
-
-        //if (bug) CON_LOG("start (%d, %d) end (%d, %d) size", startFill.x, startFill.y, endFill.x, endFill.y, (endFill.x - startFill.x) * (endFill.y - startFill.y));
-        //if (bug) CON_LOG("a (%d, %d); b (%d, %d); c (%d, %d); d (%d, %d)", a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
-
-        xIt = (endFill.x > startFill.x) ? 1 : -1;
-        yIt = (endFill.y > startFill.y) ? 1 : -1;
-
-        for (int x = startFill.x; (xIt == 1) ? x <= endFill.x : x >= endFill.x; x += xIt) {
-            for (int y = startFill.y; (yIt == 1) ? y <= endFill.y : y >= endFill.y; y += yIt) {
-                curIndex = ((x - startFill.x) * (endFill.y - startFill.y) * yIt + (y - startFill.y)) * xIt;
-                //if (bug) CON_LOG("x, y: %d, %d", x + curCoord.x, y + curCoord.y);
-
-                // fill in x degree left and right only
-                curEU = EuclideanDistance(coord(x, y, 0));
-                //grad[curIndex].SetTheta(RadToDegree(FMath::Asin((float)y / curEU)) - curCoord.theta); // result {-90, 90} half horizontal; in > 90 - a; in < -90 + a
-                grad[curIndex].theta = RadToDegree(FMath::Acos((float)x / curEU)) - curCoord.theta;
-                // not precise, for comparison only; result {-90, 90} half horizontal; in > 90 - a; in < -90 + a; left -, right +
-                if (grad[curIndex].theta > 90 + fillDegree) {
-                    // left
-                    grad[curIndex].x = x + curCoord.x;
-                    grad[curIndex].y = y + curCoord.y;
-
-                    switch (leftFunc) {
-                    case 0:
-                        grad[curIndex].height = ExponentDecay(leftA, curCoord.height, curEU);
-                        break;
-                    case 1:
-                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
-                        else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
-                        break;
-                    case 2:
-                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
-                        else grad[curIndex].height = Parabola(leftA, curCoord.height, curEU);
-                        break;
-                    }
-                    //CON_LOG("paraA, x: %f, %f", leftA, (float)curEU);
-                }
-                else if (grad[curIndex].theta < 90 - fillDegree) {
-                    // right
-                    grad[curIndex].x = x + curCoord.x;
-                    grad[curIndex].y = y + curCoord.y;
-
-                    switch (rightFunc) {
-                    case 0:
-                        grad[curIndex].height = ExponentDecay(rightA, curCoord.height, curEU);
-                        break;
-                    case 1:
-                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
-                        else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
-                        break;
-                    case 2:
-                        if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
-                        else grad[curIndex].height = Parabola(rightA, curCoord.height, curEU);
-                        break;
-                    }
-                }
-
-                /*CON_LOG("current: (%d, %d, %d) \t arcsin: %d", x, y, (int) curEU,
-                    grad[curIndex].theta
-                );*/
-            }
-        }
-        Draw(grad);
-        bug = false;
+        eachRadius = m * curCoord.height;
+        //CON_LOG("m calc: %f \teach rad: %d, \theight: %d", (float) radius / peak, eachRadius, curCoord.height);
+        GradientSingleMainHelper(curCoord, eachRadius, skew, fillDegree);
     }
+}
 
-    //Draw(curLine);
+void ULanGenElevation::GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree)
+{
+	int leftRadius = radius * ((-skew) + 1),
+		rightRadius = radius * (skew + 1),
+        curIndex = 0, tempTheta = 0,
+		leftFunc, rightFunc, xIt, yIt, blendOffset, blendHeight;
+	float leftA, rightA, optiA, curEU = 0;
+	coord startFill = coord(), endFill = coord(),
+		a = coord(), b = coord(), c = coord(), d = coord();
+
+	// 0 = exponent decay, 1 = linear + blend, 2 = parabola + blend
+	if (skew == 0.0) leftFunc = 1, rightFunc = 1,
+		leftA = LinearM(curCoord.height, radius * 0.75),
+		rightA = leftA,
+		optiA = ExponentDecayA(curCoord.height, radius * 0.75),
+		blendOffset = LinearX(leftA, curCoord.height, curCoord.height / 4);
+	else if (skew > 0.0) leftFunc = 0, rightFunc = 2,
+		leftA = ExponentDecayA(curCoord.height, leftRadius),
+		rightA = ParabolaA(curCoord.height, rightRadius * 0.75),
+		optiA = ExponentDecayA(curCoord.height, rightRadius * 0.75),
+		blendOffset = ParabolaX(rightA, curCoord.height, curCoord.height / 4);
+	else leftFunc = 2, rightFunc = 0,
+		leftA = ParabolaA(curCoord.height, leftRadius * 0.75),
+		optiA = ExponentDecayA(curCoord.height, leftRadius * 0.75),
+		blendOffset = ParabolaX(leftA, curCoord.height, curCoord.height / 4),
+		rightA = ExponentDecayA(curCoord.height, rightRadius);
+
+	blendHeight = (curCoord.height / 4) / optiA;
+
+	TArray<coord> grad;
+
+	// figuring out where to start loop;
+	a.x = 
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) +
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+	a.y = 
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) +
+        FMath::RoundToInt((float)FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+	b.x = 
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) +
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+	b.y = 
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(180))) * radius) +
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+	c.x = 
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.theta)) * radius) +
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+	c.y = 
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.theta)) * radius) +
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(90))) * rightRadius);
+	d.x = 
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.theta)) * radius) +
+        FMath::RoundToInt(FMath::Sin(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+	d.y = 
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.theta)) * radius) +
+        FMath::RoundToInt(FMath::Cos(DegreeToRad(curCoord.AddThetaTemp(-90))) * leftRadius);
+
+	// compare Abs value; multply by left n right radius in order for skew to work properly
+	startFill.x = (Abs(a.x) > Abs(d.x)) ? a.x : d.x;
+	startFill.y = (Abs(a.y * rightRadius) > Abs(b.y * leftRadius)) ? a.y : b.y;
+	endFill.x = (Abs(c.x) > Abs(b.x)) ? c.x : b.x;
+	endFill.y = (Abs(c.y * leftRadius) > Abs(d.y * rightRadius)) ? c.y : d.y;
+
+    xIt = (endFill.x > startFill.x) ? 1 : -1;
+	yIt = (endFill.y > startFill.y) ? 1 : -1;
+
+    grad.Init(coord(), Abs((endFill.x - startFill.x + xIt) * (endFill.y - startFill.y + yIt)));
+
+    /*CON_LOG("OwO start (%d, %d) \tend (%d, %d) \tsize %d", startFill.x, startFill.y, endFill.x, endFill.y,
+        Abs((endFill.x - startFill.x + xIt) * (endFill.y - startFill.y + yIt))
+    );*/
+    /*CON_LOG("a (%d, %d); b (%d, %d); c (%d, %d); d (%d, %d); itt (%d, %d); rad (%d, %d, %d)", a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y, xIt, yIt,
+        leftRadius, radius, rightRadius
+    );*/
+
+	for (int x = startFill.x; (xIt == 1) ? x <= endFill.x : x >= endFill.x; x += xIt) {
+		for (int y = startFill.y; (yIt == 1) ? y <= endFill.y : y >= endFill.y; y += yIt) {
+			curIndex = Abs((x - startFill.x) * (endFill.y - startFill.y)) + Abs(y - startFill.y);
+			// fill in x degree left and right only
+            tempTheta = RadToDegree(FMath::Atan2(y, x));
+            tempTheta = -(tempTheta - 90);
+            grad[curIndex].SetTheta(tempTheta); // 0 @ north
+            grad[curIndex].AddTheta(-curCoord.theta); // 0 @ center heading
+			
+			if (grad[curIndex].theta > 270 - fillDegree && grad[curIndex].theta < 270 + fillDegree) {
+                curEU = EuclideanDistance(coord(x, y, 0)); // calculate if condition match only; optimization
+				// left
+				grad[curIndex].x = x + curCoord.x;
+				grad[curIndex].y = y + curCoord.y;
+                //grad[curIndex].height = 20;
+				switch (leftFunc) {
+				case 0:
+					grad[curIndex].height = ExponentDecay(leftA, curCoord.height, curEU);
+					break;
+				case 1:
+					if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+					else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
+					break;
+				case 2:
+					if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+					else grad[curIndex].height = Parabola(leftA, curCoord.height, curEU);
+					break;
+				}
+			}
+			else if (grad[curIndex].theta > 90 - fillDegree && grad[curIndex].theta < 90 + fillDegree) {
+                curEU = EuclideanDistance(coord(x, y, 0));
+				// right
+				grad[curIndex].x = x + curCoord.x;
+				grad[curIndex].y = y + curCoord.y;
+                //grad[curIndex].height = 20;
+				switch (rightFunc) {
+				case 0:
+					grad[curIndex].height = ExponentDecay(rightA, curCoord.height, curEU);
+					break;
+				case 1:
+					if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+					else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
+					break;
+				case 2:
+					if (curEU > blendOffset) grad[curIndex].height = ExponentDecay(optiA, blendHeight, curEU, blendOffset);
+					else grad[curIndex].height = Parabola(rightA, curCoord.height, curEU);
+					break;
+				}
+			}
+		}
+	}
+	Draw(grad);
 }
 
 float ULanGenElevation::EuclideanDistance(coord pointCoord, coord centerCoord)

@@ -17,11 +17,16 @@ struct coord {
 	int x, y, theta, height;
 	coord() { x = 0, y = 0, theta = 0, height = 0; }
 	coord(int X, int Y, int THETA) { x = X, y = Y, theta = THETA, height = 0; }
-	void SetTheta(int value) { theta = value % 360; }
-	void AddTheta(int value) { theta = (theta + value) % 360; }
+	void SetTheta(int value) { theta = Mod(value); }
+	void AddTheta(int value) { theta = Mod(theta + value); }
 	int AddThetaTemp(int value) { return (theta + value) % 360; }
 	int index(int yLen) { return x * yLen + y; }
 	bool isInRange(int xLen, int yLen) { return x >= 0 && y >= 0 && x < xLen&& y < yLen; }
+	static int Mod(int in) {
+		int tempInt = in % 360;
+		if (tempInt < 0) tempInt += 360;
+		return tempInt;
+	}
 };
 
 struct midPoint {
@@ -87,6 +92,7 @@ private:
 	void GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy);
 	void CiircularGradientFill(coord centerCoord, int radius, int peak);
 	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree);
+	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree);
 
 	float EuclideanDistance(coord pointCoord, coord centerCoord = coord());
 	int Parabola(float a, float c, float x, float xOffset = 0);
