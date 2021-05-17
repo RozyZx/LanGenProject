@@ -68,14 +68,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
 		void InitSeed(int32 in);
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
-		TArray<FColor> GenerateGraph(
-			FString rule, FString axiom, int ruleLoop,
-			int midPointLoop, int midPointSmooth, int x,
-			int y, int lineLength = 3, int minAngle = 30,
-			int maxAngle = 30, bool generateElevation = true, int radius = 50,
-			int peak = 50, int gapAccuracy = 1, int skew = 0
-		);
-	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
 		TArray<FColor> GenerateGraphDebug(
 			FString rule, FString axiom, int ruleLoop,
 			int x, int y, int lineLength = 3, int minAngle = 30, int maxAngle = 30,
@@ -89,8 +81,6 @@ private:
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
 	void MidpointDisplacement(TArray<coord>& currentLine, int displacement, int smooth, int loop = 20);
 
-	void GradientFill(TArray<coord>& currentLine, int radius, int peak, int gapAccuracy);
-	void CiircularGradientFill(coord centerCoord, int radius, int peak);
 	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree);
 	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree);
 
