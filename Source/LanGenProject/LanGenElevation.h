@@ -71,7 +71,8 @@ public:
 		TArray<FColor> GenerateGraphDebug(
 			FString rule, FString axiom, int ruleLoop,
 			int x, int y, int lineLength = 3, int minAngle = 30, int maxAngle = 30,
-			int radius = 50, int peak = 50, float skew = 0, int fillDegree = 90
+			int radius = 50, int peak = 50, float skew = 0, int fillDegree = 90,
+			float topBlend = 0.1
 		);
 private:
 	void RuleSetup(FString rule);
@@ -79,10 +80,10 @@ private:
 	void Shuffle(TArray<int>& inArr);
 	FString RandomizeRule(int ruleIndex);
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
-	void MidpointDisplacement(TArray<coord>& currentLine, int displacement, int smooth, int loop = 20);
+	void MidpointDisplacement(TArray<coord>& currentLine, int peak, int peakIndex, int displacement, int smooth, int loop = 20);
 
-	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree);
-	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree);
+	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight = true);
+	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend);
 
 	float EuclideanDistance(coord pointCoord, coord centerCoord = coord());
 	int Parabola(float a, float c, float x, float xOffset = 0);
@@ -93,8 +94,10 @@ private:
 	int Linear(float m, float x, float c);
 	float LinearM(float c, float xMax);
 	float LinearX(float m, float c, float y);
+	TArray<coord> BezierCurve3(coord p1, coord p2, coord p3);
+	TArray<coord> BezierCurve4(coord p1, coord p2, coord p3, coord p4);
 
-	void Draw(TArray<coord> currentLine);
+	void Draw(TArray<coord> currentLine, bool overwrite = false);
 	static float DegreeToRad(int degree);
 	static float RadToDegree(float rad);
 	static int Abs(int in);
