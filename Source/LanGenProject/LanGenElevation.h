@@ -72,7 +72,7 @@ public:
 			FString rule, FString axiom, int ruleLoop,
 			int x, int y, int lineLength = 3, int minAngle = 30, int maxAngle = 30,
 			int radius = 50, int peak = 50, float skew = 0, int fillDegree = 90,
-			float topBlend = 0.1
+			float topBlend = 0.1, int disLoop = 5, float disSmooth = 1.1
 		);
 private:
 	void RuleSetup(FString rule);
@@ -80,7 +80,7 @@ private:
 	void Shuffle(TArray<int>& inArr);
 	FString RandomizeRule(int ruleIndex);
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
-	void MidpointDisplacement(TArray<coord>& currentLine, int peak, int peakIndex, int displacement, int smooth, int loop = 20);
+	void MidpointDisplacement(TArray<coord>& currentLine, int peak, int peakIndex, int displacement, int loop, float smooth = 1.1);
 
 	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight = true);
 	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend);
@@ -92,7 +92,7 @@ private:
 	int ExponentDecay(float a, float b, float x, float xOffset = 0, int modifier = 1);
 	float ExponentDecayA(float b, float xMax, float y = 0.1, float xOffset = 0);
 	int Linear(float m, float x, float c);
-	float LinearM(float c, float xMax);
+	float LinearM(float c, float xMax, float modifier = -1);
 	float LinearX(float m, float c, float y);
 	TArray<coord> BezierCurve3(coord p1, coord p2, coord p3);
 	TArray<coord> BezierCurve4(coord p1, coord p2, coord p3, coord p4);

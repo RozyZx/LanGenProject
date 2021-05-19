@@ -35,7 +35,7 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
     int x, int y, int lineLength,
     int minAngle, int maxAngle, int radius,
     int peak, float skew, int fillDegree,
-    float topBlend
+    float topBlend, int disLoop, float disSmooth
 )
 {
     lanX = x, lanY = y;
@@ -66,14 +66,15 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
         currentCoord = &currentLine[currentLine.Num() - 1];
         switch (i) {
         case 'F': Bresenham(currentLine, lineLength); break;
-        case 'P': peakIndex = currentLine.Num() - 1; break;
-        case 'L': /*lowest point*/ break;
+        case 'P': peakIndex = currentLine.Num() - 1; CON_LOG("peak: %d", peakIndex); break;
+        case 'L':
+            break;
         case 'D': /*Detail line*/ break;
         case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
         case '-': currentCoord->AddTheta(-(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle)); break;
         case '[': branchRootStack.Add(*currentCoord); break;
         case ']': // run on line ends
-            GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend);
+            //GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend);
             currentLine.Empty();
             currentLine.Add(
                 branchRootStack[branchRootStack.Num() - 1]
@@ -82,7 +83,8 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
             break;
         }
     }
-    GradientSingleMain(currentLine, peak, peakIndex, radius, skew, fillDegree, topBlend);
+    MidpointDisplacement(currentLine, peak, peakIndex, peak / 2, disLoop, disSmooth);
+    GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend, false);
 
     return texture;
 
@@ -199,13 +201,13 @@ void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
 }
 
 // generate height for the ridge line
-void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int peak, int peakIndex, int displacement, int smooth, int loop)
+void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int peak, int peakIndex, int displacement, int loop, float smooth)
 {
     TArray<midPoint> oldIndexes, newIndexes;
     midPoint mid;
     int currentDisplacement = displacement,
-        randomModifier, linearM;
-    float modifier = FMath::Pow(2, -smooth);
+        randomModifier = 0;
+    float modifier = FMath::Pow(2, -smooth), linearM;
 
     // first half
     if (FMath::Pow(2, loop) > peakIndex) loop = FMath::Log2(peakIndex + 1);
@@ -230,27 +232,20 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
     //if (oldIndexes[0].height > 0) currentDisplacement *= modifier;
 
     // fill height between coord
-    linearM = LinearM(peak, peakIndex + 1);
-    for (int j = 0; j < oldIndexes.Num() - 1; ++j) {
-        for (int k = oldIndexes[j].index; k < oldIndexes[j + 1].index; ++k) {
-            currentLineCoord[k].height =
-                (
-                    ((float)(k - oldIndexes[j].index) / (oldIndexes[j + 1].index - oldIndexes[j].index)) *
-                    (oldIndexes[j + 1].height - oldIndexes[j].height)) +
-                oldIndexes[j].height;
-        }
-    }
-
+    linearM = LinearM(peak, peakIndex + 1, 1);
+    CON_LOG("first half: %d, %d: %d, %d; line: %f", oldIndexes[0].index, oldIndexes[0].height, oldIndexes[1].index, oldIndexes[1].height, linearM);
+    for (int j = 0; j < oldIndexes.Num() - 1; ++j) 
+        for (int k = oldIndexes[j].index; k < oldIndexes[j + 1].index; ++k) currentLineCoord[k].height = Linear(linearM, k - peakIndex, peak);
+    // midpoint
     for (int i = 0; i < loop; ++i) {
-        // mid point
         for (int j = 0; j < oldIndexes.Num() - 1; ++j) {
             mid.index = (int)((oldIndexes[j].index + oldIndexes[j + 1].index) / 2);
             newIndexes.Add(oldIndexes[j]);
             if (mid.index != oldIndexes[j].index) {
-                if (currentLineCoord[mid.index].height < currentDisplacement) randomModifier = 1;
-                else randomModifier = (randomEngine.RandRange(0, 1) == 0 ? 1 : -1);
-                mid.height = currentLineCoord[mid.index].height + currentDisplacement * randomModifier;
                 currentDisplacement *= modifier;
+                /*if (currentLineCoord[mid.index].height < currentDisplacement) randomModifier = 1;
+                else randomModifier = (randomEngine.RandRange(0, 1) == 0 ? 1 : -1);*/
+                mid.height = currentLineCoord[mid.index].height + currentDisplacement * (randomEngine.RandRange(0,1) == 0 ? -1 : 1);
                 newIndexes.Add(mid);
             }
         }
@@ -268,11 +263,44 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
             }
         }
     }
-
-    /*CON_LOG("Line Start =================");
-    for (coord& i : currentLineCoord) {
-        CON_LOG("height: %d", i.height);
-    }*/
+    
+    // second half
+    oldIndexes.Empty();
+    newIndexes.Empty();
+    currentDisplacement = displacement;
+    if (FMath::Pow(2, loop) > currentLineCoord.Num() - peakIndex) loop = FMath::Log2(peakIndex + 1);
+    oldIndexes.Add(midPoint(peakIndex, peak));
+    oldIndexes.Add(midPoint(currentLineCoord.Num() - 1, 0));
+    CON_LOG("second half: %d, %d: %d, %d", oldIndexes[0].index, oldIndexes[0].height, oldIndexes[1].index, oldIndexes[1].height);
+    // fill height between coord
+    linearM = LinearM(peak, currentLineCoord.Num() - 1 - peakIndex);
+    for (int j = 0; j < oldIndexes.Num() - 1; ++j) 
+        for (int k = oldIndexes[j].index; k < oldIndexes[j + 1].index; ++k) currentLineCoord[k].height = Linear(linearM, k - peakIndex, peak);
+    // midpoint
+    for (int i = 0; i < loop; ++i) {
+        for (int j = 0; j < oldIndexes.Num() - 1; ++j) {
+            mid.index = (int)((oldIndexes[j].index + oldIndexes[j + 1].index) / 2);
+            newIndexes.Add(oldIndexes[j]);
+            if (mid.index != oldIndexes[j].index) {
+                currentDisplacement *= modifier;
+                mid.height = currentLineCoord[mid.index].height + currentDisplacement * (randomEngine.RandRange(0, 1) == 0 ? -1 : 1);
+                newIndexes.Add(mid);
+            }
+        }
+        newIndexes.Add(oldIndexes[oldIndexes.Num() - 1]);
+        oldIndexes = newIndexes;
+        newIndexes.Empty();
+        // fill height between coord
+        for (int j = 0; j < oldIndexes.Num() - 1; ++j) {
+            for (int k = oldIndexes[j].index; k < oldIndexes[j + 1].index; ++k) {
+                currentLineCoord[k].height =
+                    (
+                        ((float)(k - oldIndexes[j].index) / (oldIndexes[j + 1].index - oldIndexes[j].index)) *
+                        (oldIndexes[j + 1].height - oldIndexes[j].height)) +
+                    oldIndexes[j].height;
+            }
+        }
+    }
 }
 
 void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight)
@@ -518,7 +546,7 @@ float ULanGenElevation::ExponentDecayA(float b, float xMax, float y, float xOffs
 
 int ULanGenElevation::Linear(float m, float x, float c) { return m * x + c; }
 
-float ULanGenElevation::LinearM(float c, float xMax) { return -(FMath::Pow(2, (c / xMax) - 1)); }
+float ULanGenElevation::LinearM(float c, float xMax, float modifier) { return modifier * (c / xMax); }
 
 float ULanGenElevation::LinearX(float m, float c, float y) { return (y - c) / m; }
 
