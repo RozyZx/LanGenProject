@@ -228,5 +228,5 @@ float ULanGenNoise::Grad(int hash, float x, float y, float z)
         v = h < 4 ? y : h == 12 || h == 14 ? x : z;
     return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
 }
-void ULanGenNoise::Shuffle(TArray<int> * inArr) { for (int i = 0; i < p.Num(); ++i) p.Swap(i, randomEngine.RandRange(0, p.Num() - 1)); }
+void ULanGenNoise::Shuffle(TArray<int> * inArr) { for (int i = 0; i < inArr->Num(); ++i) inArr->Swap(i, randomEngine.RandRange(0, inArr->Num() - 1)); }
 uint8_t ULanGenNoise::Hash(int32_t i) { return p[static_cast<uint8_t>(i)]; }

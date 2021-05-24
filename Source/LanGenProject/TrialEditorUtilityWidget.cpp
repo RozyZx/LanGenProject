@@ -21,7 +21,7 @@ UTexture2D* UTrialEditorUtilityWidget::GenerateTexture(int x, int y, int tileX, 
 	TArray<FColor> colorData;
 	int index = 0;
 	FVector2D location;
-	GenerationSetup();
+	//GenerationSetup();
 
 	switch (generateParam) {
 	case 0: colorData = GenerateElevationMap(x, y); break;
@@ -61,7 +61,7 @@ void UTrialEditorUtilityWidget::Debug(int x, int y, int tileX, int tileY)
 	TArray<FColor> colorData = GenerateElevationMap(x, y);
 	int index = 0;
 	FVector2D location;
-	GenerationSetup();
+	//GenerationSetup();
 
 	ConLog(FString::FromInt(colorData.Num()));
 }

@@ -45,7 +45,7 @@ private:
 	FRandomStream randomEngine;
 	TArray<rule> rules;
 	TArray<int> p;
-	TArray<FColor> texture;
+	TArray<FColor> texture, detailTexture;
 	const TArray<int> P_BASE = {
 		151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,140,36,103,30,69,142,
 		8,99,37,240,21,10,23,190, 6,148,247,120,234,75,0,26,197,62,94,252,219,203,117,
@@ -66,24 +66,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
 		void ResetSeed();
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
-		void InitSeed(int32 in);
+		void Init(int32 in, int x, int y);
 	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
-		TArray<FColor> GenerateGraphDebug(
-			FString rule, FString axiom, int ruleLoop,
-			int x, int y, int lineLength = 3, int minAngle = 30, int maxAngle = 30,
-			int radius = 50, int peak = 50, float skew = 0, int fillDegree = 90,
-			float topBlend = 0.1, int disLoop = 5, float disSmooth = 1.1
+		FVector2D RandomizeCoord(float percentageSafeZone);
+	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
+		FVector2D CenterTerrainCoord();
+	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
+		TArray<FColor> GenerateGraph(
+			FVector2D startingPosition, FString rule, FString axiom,
+			int ruleLoop, int lineLength = 3, int minAngle = 30,
+			int maxAngle = 30, int radius = 50, int peak = 50,
+			float skew = 0, int fillDegree = 90, float topBlend = 0.1,
+			int disLoop = 5, float disSmooth = 1.1, int startHeight = 50
 		);
+	UFUNCTION(BlueprintCallable, Category = "LanGen Elevation")
+		TArray<FColor> CombineTexture(TArray<FColor> texture1, TArray<FColor> texture2);
 private:
 	void RuleSetup(FString rule);
 	FString RuleApply(FString axiom, int loop);
 	void Shuffle(TArray<int>& inArr);
-	FString RandomizeRule(int ruleIndex);
+	FString RandomizeRule(int ruleIndex, FString& last);
 	void Bresenham(TArray<coord>& currentLine, int lineLength);
 	void MidpointDisplacement(TArray<coord>& currentLine, int peak, int peakIndex, int displacement, int loop, float smooth = 1.1);
 
-	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight = true);
-	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend);
+	void GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight = true, bool isAdd = false);
+	void GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend, bool isAdd = false);
 
 	float EuclideanDistance(coord pointCoord, coord centerCoord = coord());
 	int Parabola(float a, float c, float x, float xOffset = 0);
@@ -98,6 +105,7 @@ private:
 	TArray<coord> BezierCurve4(coord p1, coord p2, coord p3, coord p4);
 
 	void Draw(TArray<coord> currentLine, bool overwrite = false);
+	void DrawDetail(TArray<coord> currentLine, bool overwrite = false);
 	static float DegreeToRad(int degree);
 	static float RadToDegree(float rad);
 	static int Abs(int in);

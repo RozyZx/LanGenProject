@@ -39,7 +39,5 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")
 		uint8 GenerateFunction(const FVector2D location, const int value);
 	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")
-		void GenerationSetup();
-	UFUNCTION(BlueprintImplementableEvent, Category = "Landscape Generation")
 		TArray<FColor> GenerateElevationMap(const int x, const int y);
 };

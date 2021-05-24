@@ -18,8 +18,10 @@ void ULanGenElevation::ResetSeed()
 	p.Append(P_BASE);
 }
 
-void ULanGenElevation::InitSeed(int32 in)
+void ULanGenElevation::Init(int32 in, int x, int y)
 {
+    lanX = x;
+    lanY = y;
 	seed = in;
 	p.Empty();
 	p = P_BASE;
@@ -30,15 +32,27 @@ void ULanGenElevation::InitSeed(int32 in)
 	p.Append(tempArray);
 }
 
-TArray<FColor> ULanGenElevation::GenerateGraphDebug(
-    FString rule, FString axiom, int ruleLoop,
-    int x, int y, int lineLength,
-    int minAngle, int maxAngle, int radius,
-    int peak, float skew, int fillDegree,
-    float topBlend, int disLoop, float disSmooth
+FVector2D ULanGenElevation::RandomizeCoord(float percentageSafeZone)
+{
+    float half = (1 - percentageSafeZone) / 2;
+    int x = randomEngine.RandRange(half * lanX, (percentageSafeZone + half) * lanX),
+        y = randomEngine.RandRange(half * lanY, (percentageSafeZone + half) * lanY);
+    return FVector2D(
+        randomEngine.RandRange(half * lanX, (percentageSafeZone + half) * lanX),
+        randomEngine.RandRange(half * lanY, (percentageSafeZone + half) * lanY)
+    );
+}
+
+FVector2D ULanGenElevation::CenterTerrainCoord() { return FVector2D(lanX / 2, lanY / 2); }
+
+TArray<FColor> ULanGenElevation::GenerateGraph(
+    FVector2D startingPosition, FString rule, FString axiom,
+    int ruleLoop, int lineLength, int minAngle,
+    int maxAngle, int radius, int peak,
+    float skew, int fillDegree, float topBlend,
+    int disLoop, float disSmooth, int startHeight
 )
 {
-    lanX = x, lanY = y;
     TArray<coord> branchRootStack;
     TArray<coord> currentLine;
     coord* currentCoord;
@@ -46,8 +60,9 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
     bool isRandomAngle = minAngle != maxAngle;
     int peakIndex = 0;
 
-    init = FColor(100, 0, 0);
+    init = FColor(startHeight, 0, 0);
     texture.Init(init, lanX * lanY);
+    detailTexture.Init(FColor::Black, lanX * lanY);
 
     // L-System
     RuleSetup(rule);
@@ -55,26 +70,32 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
     //CON_LOG("%s", *grammar);
 
     // set starting position
-    currentLine.Add(coord(
-        lanX / 2,
-        lanY / 2,
-        0
-    ));
+    currentLine.Add(coord(startingPosition.X, startingPosition.Y, 0));
+    CON_LOG("Start: (%d, %d)", currentLine[0].x, currentLine[0].y);
 
     // create array of target coord
     for (TCHAR i : grammar) {
         currentCoord = &currentLine[currentLine.Num() - 1];
         switch (i) {
         case 'F': Bresenham(currentLine, lineLength); break;
-        case 'P': peakIndex = currentLine.Num() - 1; CON_LOG("peak: %d", peakIndex); break;
-        case 'L':
+        case 'P': peakIndex = currentLine.Num() - 1; break;
+        case 'L': /*main lowest point*/
+            if (currentLine.Num() > 2) {
+                MidpointDisplacement(currentLine, peak, peakIndex, peak / 2, disLoop, disSmooth);
+                GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend, false);
+            }
             break;
-        case 'D': /*Detail line*/ break;
+        case 'D': Bresenham(currentLine, lineLength); break;
+        case 'E': /*draw detail*/
+            if (currentLine.Num() > 1) {
+                for (coord& curCoord : currentLine) curCoord.height = peak * 0.1;
+                GradientSingleMain(currentLine, currentCoord->height, 0.1 * radius, 0, 180, 0.5 * topBlend, false, true);
+            }
+            break;
         case '+': currentCoord->AddTheta(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle); break;
         case '-': currentCoord->AddTheta(-(isRandomAngle ? randomEngine.RandRange(minAngle, maxAngle) : minAngle)); break;
         case '[': branchRootStack.Add(*currentCoord); break;
         case ']': // run on line ends
-            //GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend);
             currentLine.Empty();
             currentLine.Add(
                 branchRootStack[branchRootStack.Num() - 1]
@@ -83,11 +104,20 @@ TArray<FColor> ULanGenElevation::GenerateGraphDebug(
             break;
         }
     }
-    MidpointDisplacement(currentLine, peak, peakIndex, peak / 2, disLoop, disSmooth);
-    GradientSingleMain(currentLine, peak, radius, skew, fillDegree, topBlend, false);
+
+    for (int i = 0; i < texture.Num(); ++i) {
+        texture[i].R += detailTexture[i].R;
+    }
 
     return texture;
 
+}
+
+TArray<FColor> ULanGenElevation::CombineTexture(TArray<FColor> texture1, TArray<FColor> texture2)
+{
+    if (texture2.Num() != texture1.Num()) return texture1;
+    for (int i = 0; i < texture1.Num(); ++i) texture1[i].R = texture1[i].R >= texture2[i].R ? texture1[i].R : texture2[i].R;
+    return texture1;
 }
 
 // L-System rule setup
@@ -127,19 +157,45 @@ void ULanGenElevation::RuleSetup(FString in)
 // apply L-System rule
 FString ULanGenElevation::RuleApply(FString axiom, int loop)
 {
-    FString currentLstring;
+    FString currentLstring, last;
+    int lCount;
     for (int i = 0; i < loop; ++i) {
+        lCount = 0;
+        last = "";
         currentLstring = "";
         //check for each char in axiom
         for (TCHAR j : axiom) {
-            // rule check
-            for (int k = 0; k < rules.Num(); ++k) {
-                if (j == rules[k].from[0]) {
-                    currentLstring.Append(RandomizeRule(k));
-                    break;
+            if (lCount < 2) {
+                if (j == 'L') ++lCount;
+                for (int k = 0; k < rules.Num(); ++k) {
+                    if (j == rules[k].from[0]) {
+                        currentLstring.Append(RandomizeRule(k, last));
+                        break;
+                    }
+                }
+                currentLstring.AppendChar(j);
+
+                if (lCount == 2) { // reset variable after use
+                    currentLstring.Append(last);
+                    last = "";
                 }
             }
-            currentLstring.AppendChar(j);
+            else {
+                // rule check
+                for (int k = 0; k < rules.Num(); ++k) {
+                    if (j == rules[k].from[0]) {
+                        currentLstring.Append(RandomizeRule(k, last));
+                        break;
+                    }
+                }
+                // if nothing match
+                currentLstring.AppendChar(j);
+
+                if (j == 'E') {
+                    currentLstring.Append(last);
+                    last = "";
+                }
+            }
         }
         axiom = currentLstring;
         if (axiom.Len() > 1000000000) break; // prevent editor from crashing due string length limit
@@ -153,19 +209,42 @@ void ULanGenElevation::Shuffle(TArray<int>& inArr)
 }
 
 // decide which symbol to replace to based on rule
-FString ULanGenElevation::RandomizeRule(int ruleIndex)
+FString ULanGenElevation::RandomizeRule(int ruleIndex, FString& last)
+{
+    int randomNumber = randomEngine.RandRange(1, 100);
+    int currentRequirement = 0;
+    FString res;
+    bool addLast = false;
+    for (int i = 0; i < rules[ruleIndex].to.Num(); ++i) {
+        currentRequirement += rules[ruleIndex].prob[i];
+        if (randomNumber <= currentRequirement) {
+            for (TCHAR j : rules[ruleIndex].to[i]) {
+                if (j == ']') addLast = true;
+
+                if (addLast) last.AppendChar(j);
+                else res.AppendChar(j);
+            }
+            return res;
+        }
+    }
+    res = rules[ruleIndex].from;
+    return res;
+}
+
+/*
+FString ULanGenElevation::RandomizeRule(int ruleIndex, FString& last)
 {
     int randomNumber = randomEngine.RandRange(1, 100);
     int currentRequirement = 0;
     for (int i = 0; i < rules[ruleIndex].to.Num(); ++i) {
         currentRequirement += rules[ruleIndex].prob[i];
         if (randomNumber <= currentRequirement) {
-            //CON_LOG("%s", *rules[ruleIndex].to[i]);
             return rules[ruleIndex].to[i];
         }
     }
     return rules[ruleIndex].from;
 }
+*/
 
 // get all 'hit' coord
 void ULanGenElevation::Bresenham(TArray<coord>& currentLine, int lineLength)
@@ -233,7 +312,6 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
 
     // fill height between coord
     linearM = LinearM(peak, peakIndex + 1, 1);
-    CON_LOG("first half: %d, %d: %d, %d; line: %f", oldIndexes[0].index, oldIndexes[0].height, oldIndexes[1].index, oldIndexes[1].height, linearM);
     for (int j = 0; j < oldIndexes.Num() - 1; ++j) 
         for (int k = oldIndexes[j].index; k < oldIndexes[j + 1].index; ++k) currentLineCoord[k].height = Linear(linearM, k - peakIndex, peak);
     // midpoint
@@ -271,7 +349,6 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
     if (FMath::Pow(2, loop) > currentLineCoord.Num() - peakIndex) loop = FMath::Log2(peakIndex + 1);
     oldIndexes.Add(midPoint(peakIndex, peak));
     oldIndexes.Add(midPoint(currentLineCoord.Num() - 1, 0));
-    CON_LOG("second half: %d, %d: %d, %d", oldIndexes[0].index, oldIndexes[0].height, oldIndexes[1].index, oldIndexes[1].height);
     // fill height between coord
     linearM = LinearM(peak, currentLineCoord.Num() - 1 - peakIndex);
     for (int j = 0; j < oldIndexes.Num() - 1; ++j) 
@@ -303,10 +380,8 @@ void ULanGenElevation::MidpointDisplacement(TArray<coord>& currentLineCoord, int
     }
 }
 
-void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight)
+void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int radius, float skew, int fillDegree, float topBlend, bool calcHeight, bool isAdd)
 {
-    //CON_LOG("grad single main called v8");
-
     // main line height
     int mainLineRadius = curLine.Num() / 2,
         mainLineParaRadius = mainLineRadius * 0.75,
@@ -340,16 +415,14 @@ void ULanGenElevation::GradientSingleMain(TArray<coord>& curLine, int peak, int 
     int eachRadius;
     float m = (float) radius / peak;
 
-    //Draw(curLine);
-
     for (coord curCoord : curLine) {
         eachRadius = m * curCoord.height;
         //CON_LOG("m calc: %f \teach rad: %d, \theight: %d", (float) radius / peak, eachRadius, curCoord.height);
-        GradientSingleMainHelper(curCoord, eachRadius, skew, fillDegree, topBlend);
+        GradientSingleMainHelper(curCoord, eachRadius, skew, fillDegree, topBlend, isAdd);
     }
 }
 
-void ULanGenElevation::GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend)
+void ULanGenElevation::GradientSingleMainHelper(coord curCoord, int radius, float skew, int fillDegree, float topBlend, bool isAdd)
 {
     int leftRadius = radius * ((-skew) + 1),
         rightRadius = radius * (skew + 1),
@@ -446,66 +519,66 @@ void ULanGenElevation::GradientSingleMainHelper(coord curCoord, int radius, floa
 
     grad.Init(coord(), Abs((endFill.x - startFill.x + xIt) * (endFill.y - startFill.y + yIt)));
 
-	for (int x = startFill.x; (xIt == 1) ? x <= endFill.x : x >= endFill.x; x += xIt) {
-		for (int y = startFill.y; (yIt == 1) ? y <= endFill.y : y >= endFill.y; y += yIt) {
-			curIndex = Abs((x - startFill.x) * (endFill.y - startFill.y)) + Abs(y - startFill.y);
-			// fill in x degree left and right only
+    for (int x = startFill.x; (xIt == 1) ? x <= endFill.x : x >= endFill.x; x += xIt) {
+        for (int y = startFill.y; (yIt == 1) ? y <= endFill.y : y >= endFill.y; y += yIt) {
+            curIndex = Abs((x - startFill.x) * (endFill.y - startFill.y)) + Abs(y - startFill.y);
+            // fill in x degree left and right only
             tempTheta = RadToDegree(FMath::Atan2(y, x));
             tempTheta = -(tempTheta - 90);
             grad[curIndex].SetTheta(tempTheta); // 0 @ north
             grad[curIndex].AddTheta(-curCoord.theta); // 0 @ center heading
-
-			if ((grad[curIndex].theta > 270 - fillDegree && grad[curIndex].theta < 270 + fillDegree) || (x == 0 && y == 0)) {
+            if ((grad[curIndex].theta > 270 - fillDegree && grad[curIndex].theta < 270 + fillDegree) || (x == 0 && y == 0)) {
                 curEU = EuclideanDistance(coord(x, y, 0)); // calculate if condition match only; optimization
-				// left
-				grad[curIndex].x = x + curCoord.x;
-				grad[curIndex].y = y + curCoord.y;
+                // left
+                grad[curIndex].x = x + curCoord.x;
+                grad[curIndex].y = y + curCoord.y;
+
                 //grad[curIndex].height = 20;
-				/*switch (leftFunc) {
-				case 0:
-					grad[curIndex].height = ExponentDecay(leftA, curCoord.height, curEU);
-					break;
-				case 1:
-					if (curEU > blendLeftOffset) grad[curIndex].height = ExponentDecay(blendLeftA, blendLeftHeight, curEU, blendLeftOffset);
-					else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
-					break;
-				case 2:
-					if (curEU > blendLeftOffset) grad[curIndex].height = ExponentDecay(blendLeftA, blendLeftHeight, curEU, blendLeftOffset);
-					else grad[curIndex].height = Parabola(leftA, curCoord.height, curEU);
-					break;
-				}*/
+                /*switch (leftFunc) {
+                case 0:
+                    grad[curIndex].height = ExponentDecay(leftA, curCoord.height, curEU);
+                    break;
+                case 1:
+                    if (curEU > blendLeftOffset) grad[curIndex].height = ExponentDecay(blendLeftA, blendLeftHeight, curEU, blendLeftOffset);
+                    else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
+                    break;
+                case 2:
+                    if (curEU > blendLeftOffset) grad[curIndex].height = ExponentDecay(blendLeftA, blendLeftHeight, curEU, blendLeftOffset);
+                    else grad[curIndex].height = Parabola(leftA, curCoord.height, curEU);
+                    break;
+                }*/
                 /*linear only*/
                 if (curEU > blendLeftOffset) grad[curIndex].height = ExponentDecay(blendLeftA, blendLeftHeight, curEU, blendLeftOffset);
                 else if (curEU < topBlendLeftStart) grad[curIndex].height = Parabola(topBlendA, topBlendPeak + topBlendPeakOffset, Abs(curEU + topBlendLeftOffset));
                 else grad[curIndex].height = Linear(leftA, curEU, curCoord.height);
-			}
-			else if (grad[curIndex].theta > 90 - fillDegree && grad[curIndex].theta < 90 + fillDegree) {
-                curEU = EuclideanDistance(coord(x, y, 0));
-				// right
-				grad[curIndex].x = x + curCoord.x;
-				grad[curIndex].y = y + curCoord.y;
+            }
+            else if (grad[curIndex].theta > 90 - fillDegree && grad[curIndex].theta < 90 + fillDegree) {
+                curEU = EuclideanDistance(coord(x, y, 0)); // calculate if condition match only; optimization
+                // right
+                grad[curIndex].x = x + curCoord.x;
+                grad[curIndex].y = y + curCoord.y;
                 //grad[curIndex].height = 20;
-				/*switch (rightFunc) {
-				case 0:
-					grad[curIndex].height = ExponentDecay(rightA, curCoord.height, curEU);
-					break;
-				case 1:
-					if (curEU > blendRightOffset) grad[curIndex].height = ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
-					else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
-					break;
-				case 2:
-					if (curEU > blendRightOffset) grad[curIndex].height = ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
-					else grad[curIndex].height = Parabola(rightA, curCoord.height, curEU);
-					break;
-				}*/
+                /*switch (rightFunc) {
+                case 0:
+                    grad[curIndex].height = ExponentDecay(rightA, curCoord.height, curEU);
+                    break;
+                case 1:
+                    if (curEU > blendRightOffset) grad[curIndex].height = ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
+                    else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
+                    break;
+                case 2:
+                    if (curEU > blendRightOffset) grad[curIndex].height = ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
+                    else grad[curIndex].height = Parabola(rightA, curCoord.height, curEU);
+                    break;
+                }*/
                 /*linear only*/
-                if (curEU > blendRightOffset) grad[curIndex].height = ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
-                else if (curEU < topBlendRightStart) grad[curIndex].height = Parabola(topBlendA, topBlendPeak + topBlendPeakOffset, Abs(curEU + topBlendRightOffset));
-                else grad[curIndex].height = Linear(rightA, curEU, curCoord.height);
-			}
-		}
-	}
-	Draw(grad);
+                if (curEU > blendRightOffset) grad[curIndex].height += ExponentDecay(blendRightA, blendRightHeight, curEU, blendRightOffset);
+                else if (curEU < topBlendRightStart) grad[curIndex].height += Parabola(topBlendA, topBlendPeak + topBlendPeakOffset, Abs(curEU + topBlendRightOffset));
+                else grad[curIndex].height += Linear(rightA, curEU, curCoord.height);
+            }
+        }
+    }
+    isAdd ? DrawDetail(grad) : Draw(grad);
 }
 
 float ULanGenElevation::EuclideanDistance(coord pointCoord, coord centerCoord)
@@ -588,11 +661,23 @@ TArray<coord> ULanGenElevation::BezierCurve4(coord p1, coord p2, coord p3, coord
 
 void ULanGenElevation::Draw(TArray<coord> currentLine, bool overwrite)
 {
-    //CON_LOG("height: %d", currentLine[0].height);
+    /*0 = do not overwerite; 1 = overwrite; 2 = add value*/
     for (coord i : currentLine) {
-        if (i.isInRange(lanX, lanY)) 
+        if (i.isInRange(lanX, lanY)) {
             /*only draw if current height higher*/
             if (i.height > texture[i.index(lanY)].R - init.R || overwrite) texture[i.index(lanY)].R = i.height + init.R;
+        }
+    }
+}
+
+void ULanGenElevation::DrawDetail(TArray<coord> currentLine, bool overwrite)
+{
+    /*0 = do not overwerite; 1 = overwrite; 2 = add value*/
+    for (coord i : currentLine) {
+        if (i.isInRange(lanX, lanY)) {
+            /*only draw if current height higher*/
+            if (i.height > detailTexture[i.index(lanY)].R || overwrite) detailTexture[i.index(lanY)].R = i.height;
+        }
     }
 }
 
